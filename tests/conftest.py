@@ -36,6 +36,16 @@ def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_chain_offers_for_plans() -> Generator[None]:
+    """Plans are made with REMA's avis only, unless a test gives other chains' offers."""
+    with patch(
+        "custom_components.middagsro.mealplan.MealPlanner._async_chain_offers",
+        new=AsyncMock(return_value={}),
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def skip_panel_dependencies(hass: HomeAssistant) -> None:
     """The sidebar panel needs the real frontend; mark it as loaded instead."""
     hass.config.components.update({"frontend", "panel_custom"})

@@ -20,7 +20,16 @@ from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
 from .api import DANISH_TIME, Catalog, Offer, Product, RemaClient, RemaError, parse_time
-from .chains import ChainOffers
+from .chains import (
+    MIN_SAVING,
+    REMA_ID,
+    ChainError,
+    ChainOffers,
+    as_offer,
+    chain_name,
+    plan_offer_lines,
+    plan_offers,
+)
 from .const import DOMAIN
 from .mealie import MealieError, MealieLink
 from .recipes import (
@@ -641,6 +650,19 @@ def _household_lines(settings: dict[str, Any]) -> list[str]:
     return lines or ["- 2 voksne"]
 
 
+def plan_shops(
+    settings: dict[str, Any], chain_offers: dict[str, dict[str, Any]] | None
+) -> list[str]:
+    """The plan's shops, favourite first: REMA 1000 and the chosen chains with offers read.
+
+    A chain whose avis could not be read is left out, so its items go to REMA
+    as before.
+    """
+    read = {entry["dealer_id"] for entry in (chain_offers or {}).values()}
+    order = settings.get("plan_chains") or [REMA_ID]
+    return [c for c in order if c == REMA_ID or c in read]
+
+
 def build_prompt(
     *,
     settings: dict[str, Any],
@@ -658,12 +680,18 @@ def build_prompt(
     own: list[dict[str, Any]] | None = None,
     disliked: list[str] | None = None,
     surprise: bool = False,
+    chain_offers: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     """Build the instructions for the AI."""
     s = settings
     day_list = ", ".join(f"{WEEKDAYS_DA[d.weekday()]} {d.isoformat()}" for d in dates)
+    shops = plan_shops(s, chain_offers)
     out: list[str] = [
-        "Du er en erfaren dansk madplanlægger. Familien handler i REMA 1000 i Danmark.",
+        "Du er en erfaren dansk madplanlægger. Familien handler i REMA 1000 i Danmark."
+        if len(shops) < 2
+        else "Du er en erfaren dansk madplanlægger. Familien handler i "
+        + ", ".join(chain_name(c) for c in shops)
+        + " i Danmark – helst i den rækkefølge.",
         f"Lav en madplan med aftensmad for {len(dates)} dage: {day_list}.",
         "",
         "HUSSTAND (beregn mængder til hele husstanden; børn spiser mindre end voksne):",
@@ -723,8 +751,13 @@ def build_prompt(
         out += [f"  {line}" for line in rule_lines(s)]
     if target := nutrition_target(s):
         out.append(f"- Næring: {target}.")
-    if s["budget"]:
+    if s["budget"] and len(shops) < 2:
         out.append(f"- Hele indkøbslisten skal koste under {s['budget']} kr. med REMA 1000-priser.")
+    elif s["budget"]:
+        out.append(
+            f"- Hele indkøbslisten skal koste under {s['budget']} kr. i alt på tværs af alle "
+            "butikkerne (tilbudspriserne; varer uden tilbud regnes med REMA 1000's pris)."
+        )
     organic = {
         "only": "Brug udelukkende økologiske varer, hvor REMA 1000 har dem.",
         "prefer": f"Foretræk økologiske varer, når de højst er {s['organic_max_extra_pct']} % dyrere.",
@@ -829,6 +862,19 @@ def build_prompt(
             if starts:
                 line += f" | gælder først fra {WEEKDAYS_DA[starts.weekday()]} {starts.isoformat()}"
             out.append(line)
+    if chain_offers:
+        favourite = chain_name(shops[0])
+        out += [
+            "",
+            "UGENS TILBUD I DE ANDRE BUTIKKER – id | butik: vare | pris | mængde:",
+            *plan_offer_lines(chain_offers),
+            "",
+            "BUTIKKER: Hver tilbudsvare købes i den butik, tilbuddets id hører til. Er samme "
+            "vare på tilbud flere steder, så vælg det billigste tilbud; koster de næsten det "
+            f"samme (under {MIN_SAVING:g} kr. forskel), så vælg efter rækkefølgen "
+            + ", ".join(chain_name(c) for c in shops)
+            + f". Varer, der ikke er på tilbud, købes i {favourite} (giv dem intet tilbuds-id).",
+        ]
 
     out += [
         "",
@@ -1177,6 +1223,18 @@ class MealPlanner:
             _LOGGER.warning("Could not load offers for the meal plan: %s", err)
             return catalog, []
 
+    async def _async_chain_offers(self, day: date) -> dict[str, dict[str, Any]]:
+        """The chosen chains' offers on the shopping day, by their id for the AI."""
+        chosen: dict[str, list[dict[str, Any]]] = {}
+        for dealer_id in self.store.settings.get("plan_chains") or []:
+            if dealer_id == REMA_ID:
+                continue  # REMA's avis comes from REMA (with its products)
+            try:
+                chosen[dealer_id] = await self.chains.async_offers(dealer_id)
+            except (ChainError, ServiceValidationError) as err:
+                _LOGGER.warning("Could not load %s's offers for the meal plan: %s", dealer_id, err)
+        return plan_offers(chosen, day)
+
     async def _async_ask_ai(self, prompt: str, task_name: str) -> dict[str, Any]:
         from homeassistant.components.ai_task import async_generate_data  # noqa: PLC0415
 
@@ -1357,6 +1415,7 @@ class MealPlanner:
         self._set_status("generating", "Henter ugens tilbud …")
         catalog, offers = await self._async_offers(start)
         late = late_offers(offers, dates[0])
+        chain_offers = await self._async_chain_offers(dates[0])
         due, optional = self.store.favorites_due(start)
         recent = self.store.recent_dishes(start, settings["no_repeat_weeks"])
         note = self.store.note.strip()
@@ -1394,11 +1453,12 @@ class MealPlanner:
                 own=own,
                 disliked=disliked_names(self.store),
                 surprise=surprise,
+                chain_offers=chain_offers,
             )
             raw = await self._async_ask_ai(prompt, "REMA 1000 madplan")
             self._set_status("generating", "Finder varer og priser i REMA 1000 …")
             plan = await self._async_build_plan(
-                raw, dates, catalog, offers, self.price_time(start), late
+                raw, dates, catalog, offers, self.price_time(start), late, chain_offers
             )
             known = {r["slug"] for r in mealie}
             ours = {r["id"] for r in own}
@@ -1448,6 +1508,7 @@ class MealPlanner:
         offers: list[Offer],
         at: datetime | None = None,
         late: dict[int, date] | None = None,
+        chain_offers: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         settings = self.store.settings
         days = self._clean_days(raw.get("days") or [], dates)
@@ -1467,7 +1528,7 @@ class MealPlanner:
                     "product_id": item.get("product_id"),
                 }
             )
-        await self._async_price_lines(shopping, offers, at, late)
+        await self._async_price_lines(shopping, offers, at, late, chain_offers)
         total = round(sum(line.get("cost") or 0 for line in shopping), 2)
         return {
             "id": uuid.uuid4().hex[:12],
@@ -1499,9 +1560,25 @@ class MealPlanner:
         offers: list[Offer],
         at: datetime | None = None,
         late: dict[int, date] | None = None,
+        chain_offers: dict[str, dict[str, Any]] | None = None,
     ) -> None:
-        """Find and price REMA products for shopping lines (offers as "o<index>")."""
+        """Find and price REMA products for shopping lines (offers as "o<index>").
+
+        A line on another chain's offer ("netto3") goes on that shop's list at
+        the offer's price. A line on no offer goes to the family's favourite
+        shop, priced with REMA's product as an estimate.
+        """
         settings = self.store.settings
+        chain_offers = chain_offers or {}
+        favourite = plan_shops(settings, chain_offers)[0]
+        rema_lines = []
+        for line in shopping:
+            entry = chain_offers.get(str(line.get("offer") or ""))
+            if entry is None:
+                rema_lines.append(line)
+            else:
+                self._chain_offer_line(line, entry)
+        shopping = rema_lines
         offer_names = {f"o{i}": offer.heading for i, offer in enumerate(offers)}
         by_id = {f"o{i}": offer for i, offer in enumerate(offers)}
         late_days = {f"o{i}": day for i, day in (late or {}).items()}
@@ -1533,6 +1610,37 @@ class MealPlanner:
             self._avis_price(line, offer)
 
         await asyncio.gather(*(match(line) for line in shopping))
+        if favourite != REMA_ID:
+            for line in shopping:
+                if not line.get("offer_name") and not line.get("must_have"):
+                    # Not on offer: bought in the favourite shop, REMA's price as an estimate.
+                    line.update(
+                        buy_at=favourite,
+                        chain_price=None,
+                        chain_heading=line["name"],
+                        bought=False,
+                        price_estimated=True,
+                    )
+
+    @staticmethod
+    def _chain_offer_line(line: dict[str, Any], entry: dict[str, Any]) -> None:
+        """A line built on another chain's offer: on that shop's list, at the offer's price."""
+        price = entry.get("price")
+        packages = avis_packages(line.get("amount"), line.get("unit"), as_offer(entry))
+        line.update(
+            offer_name=entry["heading"],
+            buy_from=None,
+            product=None,
+            avis_item=None,
+            packages=packages,
+            cost=round((price or 0) * packages, 2),
+            note=str(entry.get("description") or "").split("\n")[0][:200] or None,
+            buy_at=entry["dealer_id"],
+            chain_price=price,
+            chain_heading=entry["heading"],
+            chain_only=True,  # not a REMA item
+            bought=False,
+        )
 
     @staticmethod
     def _clean_days(raw_days: list[Any], dates: list[date]) -> list[dict[str, Any]]:

@@ -133,7 +133,7 @@ const SETTINGS_SECTIONS = (panel) => {
     { key: "nutrition", title: "Næring", form: true,
       summary: f.nutrition_enabled ? `${f.kcal_min}–${f.kcal_max} kcal · ${f.protein_pct}/${f.carb_pct}/${f.fat_pct} %` : "Slået fra" },
     { key: "chains", title: "Andre butikker", form: true,
-      summary: f.chains?.length ? f.chains.map((id) => panel._chainName(id)).join(", ") : "Kun REMA 1000" },
+      summary: `Madplan: ${(f.plan_chains?.length ? f.plan_chains : [REMA_ID]).map((id) => panel._chainName(id)).join(", ")}` },
     { key: "mealie", title: "Mealie", form: true,
       summary: state.mealie?.available ? (f.mealie_recipes || f.mealie_calendar ? "Slået til" : "Slået fra") : "Ikke sat op" },
     { key: "app", title: "App på hjemmeskærmen", form: false, summary: "Åbn Middagsro som en app på telefonen" },
@@ -709,6 +709,24 @@ class Rema1000Panel extends HTMLElement {
         this._settingsSection = arg || null;
         this._render();
         this._toTop();
+      },
+      "plan-chain-add": () => {
+        this._form.plan_chains = [...(this._form.plan_chains || [REMA_ID]), arg];
+        this._dirty = true;
+        this._render();
+      },
+      "plan-chain-remove": () => {
+        this._form.plan_chains.splice(Number(arg), 1);
+        this._dirty = true;
+        this._render();
+      },
+      "plan-chain-move": () => {
+        const [idx, step] = arg.split("|").map(Number);
+        const list = this._form.plan_chains;
+        if (idx + step < 0 || idx + step >= list.length) return;
+        [list[idx], list[idx + step]] = [list[idx + step], list[idx]];
+        this._dirty = true;
+        this._render();
       },
       "save-settings": () =>
         this._run(async () => {
@@ -1897,7 +1915,7 @@ class Rema1000Panel extends HTMLElement {
             (l) => `<li class="cline ${l.bought ? "bought" : ""}">
               <button class="box" data-action="chain-tick" data-arg="${esc(l.id)}" aria-label="Købt" aria-pressed="${!!l.bought}">${l.bought ? "✓" : ""}</button>
               <div class="what"><b>${esc(l.chain_heading || l.product?.name || l.name)}</b>
-                <span class="muted small">${l.chain_only ? esc(l.note || "") : `I stedet for ${esc(l.product?.name || l.name)} hos REMA`}</span></div>
+                <span class="muted small">${l.chain_only ? esc(l.note || "") : l.price_estimated ? "Ikke på tilbud – anslået pris ud fra REMA 1000" : `I stedet for ${esc(l.product?.name || l.name)} hos REMA`}</span></div>
               <span class="cost"><b>${kr(l.cost)}</b></span>
               <span class="ctrl">
                 <span class="stepper">
@@ -3130,7 +3148,22 @@ class Rema1000Panel extends HTMLElement {
         <p class="muted small">Fx 40 % protein, 35 % kulhydrat og 25 % fedt og 800–900 kcal. De officielle anbefalinger for voksne er ca. 10–20 % protein, 45–60 % kulhydrat og 25–40 % fedt af energien.</p>
         `),
       chains: () => card(`<h2 class="flush">Andre butikker</h2>
-        <p class="muted">Vælg de kæder, I også handler i. Deres madtilbud vises på forsiden, og i indkøbslisten og favoritterne står der, når en vare er billigere hos dem denne uge. Madplanen laves stadig med REMA 1000.</p>
+        <h3>Madplanen</h3>
+        <p class="muted">AI'en laver madplanen ud fra tilbuddene i disse butikker, og hver vare kommer på listen til den butik, den købes i. Rækkefølgen er jeres foretrukne butikker: er en vare på tilbud flere steder til næsten samme pris, vælges den øverste, og varer, der ikke er på tilbud, kommer på listen til den øverste (med REMA 1000's pris som anslået pris). REMA 1000 er altid med.</p>
+        <ol class="plan-chains">${(f.plan_chains || [REMA_ID])
+          .map((id, i, all) => `<li>${this._chainLogo(id)}<span class="grow">${esc(this._chainName(id))}</span>
+            <button class="icon-btn" data-action="plan-chain-move" data-arg="${i}|-1" ${i === 0 ? "disabled" : ""} aria-label="Op">▲</button>
+            <button class="icon-btn" data-action="plan-chain-move" data-arg="${i}|1" ${i === all.length - 1 ? "disabled" : ""} aria-label="Ned">▼</button>
+            ${id === REMA_ID ? '<span class="icon-btn" aria-hidden="true"></span>' : `<button class="icon-btn" data-action="plan-chain-remove" data-arg="${i}" aria-label="Fjern">${CLOSE_ICON}</button>`}</li>`)
+          .join("")}</ol>
+        ${this._chains
+          ? `<div class="row wrap">${this._chains
+              .filter((c) => c.id !== REMA_ID && !(f.plan_chains || []).includes(c.id))
+              .map((c) => `<button class="btn" data-action="plan-chain-add" data-arg="${esc(c.id)}">+ ${esc(c.name)}</button>`)
+              .join("")}</div>`
+          : ""}
+        <h3>Sammenlign priser</h3>
+        <p class="muted">Vælg de kæder, I også handler i. Deres madtilbud vises på forsiden, og i indkøbslisten og favoritterne står der, når en vare er billigere hos dem denne uge.</p>
         ${this._chains
           ? `<div class="chain-pick">${this._chains
               .map((c) => `<label class="chain-choice"><input type="checkbox" data-list="chains" value="${esc(c.id)}" ${f.chains.includes(c.id) ? "checked" : ""}>${this._chainLogo(c.id)}<span>${esc(c.name)}</span></label>`)
@@ -3349,6 +3382,8 @@ const STYLE = `
   .cline.bought .box { background: var(--c, var(--rema-accent)); color: #fff; }
   .stepper { display: inline-flex; align-items: center; gap: 2px; }
   .stepper .icon-btn { font-size: 18px; }
+  .plan-chains { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+  .plan-chains li { display: flex; align-items: center; gap: 8px; }
   .chain-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
   .chain-choice { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; border: 1px solid var(--divider-color); cursor: pointer; }
   .chain-choice .chain-logo { width: 36px; height: 36px; box-shadow: 0 0 0 2px var(--c); }

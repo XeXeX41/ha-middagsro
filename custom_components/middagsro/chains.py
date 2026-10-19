@@ -52,6 +52,9 @@ CHAINS: dict[str, str] = {
     "603dfL": "Min Købmand",
     "70d42L": "ABC Lavpris",
 }
+# The chains the meal plan is made with, the family's favourite shop first:
+# items that are not on offer anywhere go to the first one.
+PLAN_CHAINS_DEFAULT = ["9ba51", "71c90", REMA_ID]  # Netto, Lidl, REMA 1000
 # Aviser that are not about food.
 _NONFOOD = (
     "nonfood", "non-food", "legetøj", "elektronik", "bolig", "have", "tekstil", "jul",
@@ -104,6 +107,41 @@ def runs_on(entry: dict[str, Any], day: date) -> bool:
     end = parse_time(entry.get("valid_to"))
     moment = datetime.combine(day, datetime.min.time(), tzinfo=UTC) + timedelta(hours=12)
     return (start is None or start <= moment) and (end is None or moment <= end)
+
+
+def chain_name(dealer_id: str) -> str:
+    """A chain's name ("REMA 1000", "Netto" …)."""
+    return "REMA 1000" if dealer_id == REMA_ID else CHAINS.get(dealer_id, dealer_id)
+
+
+def plan_offers(
+    chain_offers: dict[str, list[dict[str, Any]]], day: date
+) -> dict[str, dict[str, Any]]:
+    """Other chains' offers that can be bought on the shopping day, by their id for the AI.
+
+    REMA's offers keep their "o<i>" ids; another chain's are its name and a
+    number ("netto3", "lidl12").
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for dealer_id, entries in chain_offers.items():
+        slug = "".join(ch for ch in chain_name(dealer_id).lower() if "a" <= ch <= "z") or "c"
+        running = [entry for entry in entries if runs_on(entry, day)]
+        for idx, entry in enumerate(running):
+            out[f"{slug}{idx}"] = {**entry, "dealer_id": dealer_id}
+    return out
+
+
+def plan_offer_lines(offers: dict[str, dict[str, Any]]) -> list[str]:
+    """Other chains' offers for the AI, as "netto3 | Netto: vare | pris | mængde" lines."""
+    lines = []
+    for key, entry in offers.items():
+        price = f"{entry['price']:g} kr." if entry.get("price") is not None else "?"
+        if entry.get("pre_price"):
+            price += f" (før {entry['pre_price']:g})"
+        qty = entry.get("quantity") or ""
+        name = f"{chain_name(entry['dealer_id'])}: {entry['heading']}"
+        lines.append(f"{key} | {name} | {price} | {qty}".rstrip(" |"))
+    return lines
 
 
 class ChainOffers:
@@ -515,10 +553,11 @@ async def async_move_line(
         line["bought"] = False
         if price is not None:
             line["cost"] = round(price * packages, 2)
+            line.pop("price_estimated", None)  # the shop's own price now
     elif line.get("chain_only"):
         plan["shopping"].remove(line)
     else:
-        for key in ("buy_at", "chain_price", "chain_heading", "bought"):
+        for key in ("buy_at", "chain_price", "chain_heading", "bought", "price_estimated"):
             line.pop(key, None)
         product = line.get("product") or {}
         line["cost"] = round((product.get("price") or 0) * packages, 2)

@@ -19,6 +19,7 @@ import uuid
 from homeassistant.exceptions import HomeAssistantError
 
 from .api import Offer, RemaError
+from .chains import plan_offer_lines
 from .mealie import MealieError
 from .mealplan import (
     ALLERGY_DA,
@@ -155,6 +156,7 @@ def build_swap_prompt(
     offer_lines: list[str],
     mealie: list[dict[str, Any]] | None = None,
     own: list[dict[str, Any]] | None = None,
+    chain_lines: list[str] | None = None,
 ) -> str:
     """Ask the AI for three other dishes for a day."""
     when = date.fromisoformat(day["date"])
@@ -191,6 +193,12 @@ def build_swap_prompt(
             "",
             "Brug gerne ugens tilbud i REMA 1000 (id | vare | pris | mængde):",
             *offer_lines,
+        ]
+    if chain_lines:
+        out += [
+            "",
+            "Og ugens tilbud i de andre butikker (id | butik: vare | pris | mængde):",
+            *chain_lines,
         ]
     if mealie:
         out += [
@@ -238,6 +246,7 @@ def build_swap_items_prompt(
     offer_lines: list[str],
     known_uses: bool,
     ingredients: list[str] | None = None,
+    chain_lines: list[str] | None = None,
 ) -> str:
     """Ask the AI for the shopping items of the new dish."""
     others = [
@@ -278,6 +287,13 @@ def build_swap_items_prompt(
         )
     if offer_lines:
         out += ["", "Ugens tilbud (id | vare | pris | mængde):", *offer_lines]
+    if chain_lines:
+        out += [
+            "",
+            "Ugens tilbud i de andre butikker (id | butik: vare | pris | mængde). En vare på "
+            "et af dem købes i den butik; varer uden tilbud købes som de andre på listen:",
+            *chain_lines,
+        ]
     out += [
         "",
         "SVARFORMAT: Svar KUN med gyldig JSON uden markdown, præcis sådan:",
@@ -347,6 +363,7 @@ async def async_swap_options(planner: MealPlanner, plan_id: str, day_date: str) 
     offers = await _async_offers(planner, plan)
     when = date.fromisoformat(day["date"])
     late = late_offers(offers, date.fromisoformat(plan["start_date"]))
+    chain_offers = await planner._async_chain_offers(when)
     mealie = await _async_mealie_list(planner)
     recent = [d["dish"] for d in plan["days"]]
     own = prompt_recipes(planner.store, recent)
@@ -357,6 +374,7 @@ async def async_swap_options(planner: MealPlanner, plan_id: str, day_date: str) 
         offer_lines=_offer_lines(offers, when, late),
         mealie=mealie,
         own=own,
+        chain_lines=plan_offer_lines(chain_offers),
     )
     raw = await planner._async_ask_ai(prompt, "REMA 1000 andre retter")
     options = [o for o in (_clean_option(item) for item in raw.get("options") or []) if o][:3]
@@ -402,6 +420,7 @@ async def async_swap_dish(
     offers = await _async_offers(planner, plan)
     first = date.fromisoformat(plan["start_date"])
     late = late_offers(offers, first)
+    chain_offers = await planner._async_chain_offers(date.fromisoformat(day["date"]))
     cooked = [
         d for d in plan["days"] if not d.get("uses_leftovers_from") and d.get("type") != "rester"
     ]
@@ -428,6 +447,7 @@ async def async_swap_dish(
         offer_lines=_offer_lines(offers, date.fromisoformat(day["date"]), late),
         known_uses=known_uses,
         ingredients=recipe["ingredients"] if recipe else None,
+        chain_lines=plan_offer_lines(chain_offers),
     )
     raw = await planner._async_ask_ai(prompt, "REMA 1000 ny ret")
 
@@ -467,7 +487,9 @@ async def async_swap_dish(
             continue
         plan["shopping"].append(line)
         new_lines.append(line)
-    await planner._async_price_lines(new_lines, offers, planner.price_time(first), late)
+    await planner._async_price_lines(
+        new_lines, offers, planner.price_time(first), late, chain_offers
+    )
 
     day.update(
         dish=choice["dish"],

@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 
-from .chains import CHAINS
+from .chains import CHAINS, PLAN_CHAINS_DEFAULT, REMA_ID
 from .const import DOMAIN
 
 STORE_VERSION = 1
@@ -87,6 +87,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "mealie_calendar": False,
     # Other chains whose offers are shown (Tjek dealer ids, see chains.py).
     "chains": [],
+    # The chains the meal plan is made with, in the family's order (first = favourite shop).
+    "plan_chains": list(PLAN_CHAINS_DEFAULT),
 }
 
 
@@ -154,6 +156,14 @@ def clean_settings(raw: dict[str, Any]) -> dict[str, Any]:
     settings["chains"] = list(
         dict.fromkeys(c for c in settings["chains"] or [] if isinstance(c, str) and c in CHAINS)
     )
+    plan_chains = settings["plan_chains"] if isinstance(settings["plan_chains"], list) else []
+    settings["plan_chains"] = list(
+        dict.fromkeys(
+            c for c in plan_chains if isinstance(c, str) and (c in CHAINS or c == REMA_ID)
+        )
+    )
+    if REMA_ID not in settings["plan_chains"]:
+        settings["plan_chains"].append(REMA_ID)  # REMA's products price what isn't on offer
     for key, default in (("protein_pct", 30), ("carb_pct", 45), ("fat_pct", 25)):
         settings[key] = _clamp(settings[key], 0, 100, default)
     settings["kcal_min"] = _clamp(settings["kcal_min"], 100, 3000, 600)
