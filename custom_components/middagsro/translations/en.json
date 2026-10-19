@@ -75,6 +75,9 @@
       },
       "dinner_today": {
         "name": "Dinner today"
+      },
+      "daily_suggestions": {
+        "name": "Daily suggestions"
       }
     },
     "todo": {
@@ -88,6 +91,9 @@
       },
       "send_meal_plan": {
         "name": "Send meal plan to shopping list"
+      },
+      "generate_daily_suggestions": {
+        "name": "Make daily suggestions"
       }
     },
     "calendar": {
@@ -98,6 +104,11 @@
     "text": {
       "quick_add": {
         "name": "Add to shopping list"
+      }
+    },
+    "select": {
+      "suggestion_day": {
+        "name": "Dinner {weekday}"
       }
     }
   },
@@ -194,6 +205,12 @@
     },
     "avis_not_out": {
       "message": "Next week's avis is not out yet, so the meal plan from {date} can't be priced. Pick a first day up to {last}, or wait for the new avis."
+    },
+    "suggestion_not_found": {
+      "message": "The suggestion was not found (make the daily suggestions again)."
+    },
+    "one_fish_a_week": {
+      "message": "The week already has a fish dinner – fish only once a week."
     }
   },
   "issues": {
@@ -297,6 +314,20 @@
         "part": {
           "name": "Which items",
           "description": "Main: what is bought on the shopping day. Late in the week: the items for offers that start later (e.g. Thursday), when 'We also shop late in the week' is on. All: everything."
+        }
+      }
+    },
+    "generate_daily_suggestions": {
+      "name": "Make daily suggestions",
+      "description": "Makes three dinner suggestions with AI for each day of the week from monday, from the offers in your shops. You pick one a day, and the picks become the week's meal plan.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "Only needed if more than one REMA 1000 account is set up."
+        },
+        "start_date": {
+          "name": "First day",
+          "description": "The monday the suggestions start. Default is next monday."
         }
       }
     }

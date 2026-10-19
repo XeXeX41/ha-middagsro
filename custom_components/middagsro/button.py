@@ -11,6 +11,7 @@ from .api import RemaError
 from .const import DOMAIN
 from .coordinator import RemaConfigEntry, RemaShoppingListCoordinator
 from .entity import RemaEntity
+from .suggestions import async_start as async_start_suggestions
 
 PARALLEL_UPDATES = 1
 
@@ -26,6 +27,7 @@ async def async_setup_entry(
         [
             RemaMealPlanButton(coordinator, entry, "generate_meal_plan"),
             RemaMealPlanButton(coordinator, entry, "send_meal_plan"),
+            RemaMealPlanButton(coordinator, entry, "generate_daily_suggestions"),
         ]
     )
 
@@ -51,6 +53,9 @@ class RemaMealPlanButton(RemaEntity[RemaShoppingListCoordinator], ButtonEntity):
         planner = self._entry.runtime_data.planner
         if self._key == "generate_meal_plan":
             planner.async_start_generation()
+            return
+        if self._key == "generate_daily_suggestions":
+            async_start_suggestions(planner)
             return
         try:
             await planner.async_send()

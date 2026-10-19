@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
 
 from .api import Catalog, RemaAuthError, RemaClient, RemaError
@@ -23,11 +26,13 @@ from .migrate import async_migrate
 from .panel import async_register_panel, async_unregister_panel
 from .services import async_setup_services
 from .storage import RemaPlanStore
+from .suggestions import async_sunday
 from .websocket import async_register_websocket
 
 PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.CALENDAR,
+    Platform.SELECT,
     Platform.SENSOR,
     Platform.TEXT,
     Platform.TODO,
@@ -96,6 +101,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: RemaConfigEntry) -> bool
 
     entry.async_on_unload(offers.async_add_listener(_offers_updated))
     entry.async_on_unload(planner.async_cancel)
+
+    # Every sunday morning: the coming week's daily suggestions (if switched on).
+    @callback
+    def _sunday(now: datetime) -> None:
+        async_sunday(planner, now)
+
+    entry.async_on_unload(async_track_time_change(hass, _sunday, hour=7, minute=0, second=0))
     planner.async_restore_sends()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

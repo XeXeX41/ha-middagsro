@@ -20,6 +20,9 @@
       },
       "dinner_today": {
         "default": "mdi:silverware-fork-knife"
+      },
+      "daily_suggestions": {
+        "default": "mdi:lightbulb-on-outline"
       }
     },
     "todo": {
@@ -33,6 +36,9 @@
       },
       "send_meal_plan": {
         "default": "mdi:cart-arrow-right"
+      },
+      "generate_daily_suggestions": {
+        "default": "mdi:lightbulb-auto-outline"
       }
     },
     "calendar": {
@@ -43,6 +49,11 @@
     "text": {
       "quick_add": {
         "default": "mdi:cart-plus"
+      }
+    },
+    "select": {
+      "suggestion_day": {
+        "default": "mdi:silverware-variant"
       }
     }
   },
@@ -61,6 +72,9 @@
     },
     "send_meal_plan": {
       "service": "mdi:cart-arrow-right"
+    },
+    "generate_daily_suggestions": {
+      "service": "mdi:lightbulb-auto-outline"
     }
   }
 }

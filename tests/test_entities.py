@@ -59,6 +59,12 @@ async def test_entities_and_device(
             QUICK_ADD,
             GENERATE,
             SEND,
+            "sensor.middagsro_daily_suggestions",
+            "button.middagsro_make_daily_suggestions",
+            *(
+                f"select.middagsro_dinner_{day}"
+                for day in ("mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lordag", "sondag")
+            ),
         ]
     )
     device = device_registry.async_get(entries[0].device_id)

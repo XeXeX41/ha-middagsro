@@ -89,6 +89,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "chains": [],
     # The chains the meal plan is made with, in the family's order (first = favourite shop).
     "plan_chains": list(PLAN_CHAINS_DEFAULT),
+    # Every sunday: three dinners for each day of the coming week (suggestions.py).
+    "suggestions_auto": True,
 }
 
 
@@ -153,6 +155,7 @@ def clean_settings(raw: dict[str, Any]) -> dict[str, Any]:
     settings["nutrition_enabled"] = bool(settings["nutrition_enabled"])
     settings["mealie_recipes"] = bool(settings["mealie_recipes"])
     settings["mealie_calendar"] = bool(settings["mealie_calendar"])
+    settings["suggestions_auto"] = bool(settings["suggestions_auto"])
     settings["chains"] = list(
         dict.fromkeys(c for c in settings["chains"] or [] if isinstance(c, str) and c in CHAINS)
     )
@@ -196,6 +199,8 @@ class RemaPlanStore:
         self.plans: list[dict[str, Any]] = []
         self.note = ""  # the family's wishes for the next plan only
         self.recipes: list[dict[str, Any]] = []  # the recipe collection (recipes.py)
+        # The week's daily suggestions and the family's picks (suggestions.py).
+        self.suggestions: dict[str, Any] | None = None
 
     async def async_load(self) -> None:
         """Load from disk."""
@@ -205,6 +210,8 @@ class RemaPlanStore:
         self.plans = list(data.get("plans") or [])
         self.note = str(data.get("note") or "")
         self.recipes = [r for r in data.get("recipes") or [] if isinstance(r, dict) and r.get("id")]
+        suggestions = data.get("suggestions")
+        self.suggestions = suggestions if isinstance(suggestions, dict) else None
         for plan in self.plans:
             ensure_line_ids(plan)
 
@@ -219,6 +226,7 @@ class RemaPlanStore:
                 "plans": self.plans,
                 "note": self.note,
                 "recipes": self.recipes,
+                "suggestions": self.suggestions,
             }
         )
 

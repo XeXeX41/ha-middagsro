@@ -26,6 +26,7 @@ from .const import (
     ATTR_QUERY,
     DOMAIN,
     SERVICE_ADD_ITEMS,
+    SERVICE_GENERATE_DAILY_SUGGESTIONS,
     SERVICE_GENERATE_MEAL_PLAN,
     SERVICE_GET_OFFERS,
     SERVICE_SEARCH_PRODUCTS,
@@ -34,6 +35,7 @@ from .const import (
 from .coordinator import RemaConfigEntry
 from .mealplan import parse_date
 from .schema import vol
+from .suggestions import async_start as async_start_suggestions
 
 
 def _ensure_list(value: Any) -> list[Any]:
@@ -81,6 +83,12 @@ GENERATE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
         vol.Optional("start_date"): cv.string,
         vol.Optional("send", default=False): cv.boolean,
+    }
+)
+SUGGESTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+        vol.Optional("start_date"): cv.string,
     }
 )
 SEND_SCHEMA = vol.Schema(
@@ -181,6 +189,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
             parse_date(call.data.get("start_date")), send=call.data["send"]
         )
 
+    async def generate_daily_suggestions(call: ServiceCall) -> None:
+        entry = _get_entry(hass, call)
+        async_start_suggestions(entry.runtime_data.planner, parse_date(call.data.get("start_date")))
+
     async def send_meal_plan(call: ServiceCall) -> None:
         entry = _get_entry(hass, call)
         try:
@@ -192,6 +204,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_GENERATE_MEAL_PLAN, generate_meal_plan, schema=GENERATE_SCHEMA
     )
     hass.services.async_register(DOMAIN, SERVICE_SEND_MEAL_PLAN, send_meal_plan, schema=SEND_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GENERATE_DAILY_SUGGESTIONS,
+        generate_daily_suggestions,
+        schema=SUGGESTIONS_SCHEMA,
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_GET_OFFERS,

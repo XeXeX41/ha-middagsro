@@ -51,6 +51,11 @@ from .recipes import (
 )
 from .schema import vol
 from .storage import ALLERGY_OPTIONS, AVOID_OPTIONS, FAVORITE_FREQUENCIES
+from .suggestions import (
+    async_choose as async_choose_suggestion,
+    async_dislike as async_dislike_suggestion,
+    async_start as async_start_suggestions,
+)
 
 ENTRY = vol.Optional("entry_id")
 
@@ -127,6 +132,7 @@ def _state(hass: HomeAssistant, entry: RemaConfigEntry) -> dict[str, Any]:
         ],
         "note": store.note,
         "recipes": [_recipe_summary(r) for r in store.recipes],
+        "suggestions": store.suggestions,
         "status": data.planner.status,
         "default_start": data.planner.default_start().isoformat(),
         "ai_entities": [
@@ -1006,6 +1012,65 @@ async def ws_rema_offer_add(
     connection.send_result(msg["id"], result)
 
 
+# ------------------------------------------------------------------ daily suggestions
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "middagsro/suggestions/generate",
+        ENTRY: str,
+        vol.Optional("start_date"): str,
+    }
+)
+@websocket_api.async_response
+@_wrap
+async def ws_suggestions_generate(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Start making the week's daily suggestions."""
+    planner = _entry(hass, msg).runtime_data.planner
+    async_start_suggestions(planner, parse_date(msg.get("start_date")))
+    connection.send_result(msg["id"], planner.status)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "middagsro/suggestions/choose",
+        ENTRY: str,
+        vol.Required("date"): str,
+        vol.Optional("option_id"): vol.Any(str, None),
+    }
+)
+@websocket_api.async_response
+@_wrap
+async def ws_suggestions_choose(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Pick a day's dinner among its suggestions (or none)."""
+    planner = _entry(hass, msg).runtime_data.planner
+    plan = await async_choose_suggestion(planner, msg["date"], msg.get("option_id"))
+    connection.send_result(msg["id"], plan)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "middagsro/suggestions/dislike",
+        ENTRY: str,
+        vol.Required("date"): str,
+        vol.Required("option_id"): str,
+    }
+)
+@websocket_api.async_response
+@_wrap
+async def ws_suggestions_dislike(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """👎 on a suggestion: it is removed and never suggested again."""
+    planner = _entry(hass, msg).runtime_data.planner
+    result = await async_dislike_suggestion(planner, msg["date"], msg["option_id"])
+    connection.send_result(msg["id"], result)
+
+
 @callback
 def async_register_websocket(hass: HomeAssistant) -> None:
     """Register the panel's commands."""
@@ -1053,5 +1118,8 @@ def async_register_websocket(hass: HomeAssistant) -> None:
         ws_chain_clear,
         ws_search_everywhere,
         ws_rema_offer_add,
+        ws_suggestions_generate,
+        ws_suggestions_choose,
+        ws_suggestions_dislike,
     ):
         websocket_api.async_register_command(hass, command)

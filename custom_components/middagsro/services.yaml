@@ -59,6 +59,17 @@ generate_meal_plan:
       selector:
         boolean:
 
+generate_daily_suggestions:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: middagsro
+    start_date:
+      example: "2026-10-19"
+      selector:
+        date:
+
 send_meal_plan:
   fields:
     config_entry_id:

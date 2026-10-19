@@ -16,6 +16,7 @@ from .api import Catalog
 from .coordinator import RemaConfigEntry, RemaOffersCoordinator, RemaShoppingListCoordinator
 from .entity import RemaEntity, device_info
 from .mealplan import signal_plans_updated
+from .suggestions import summary
 
 PARALLEL_UPDATES = 0
 
@@ -34,6 +35,7 @@ async def async_setup_entry(
             RemaCatalogSensor(data.offers, entry, "upcoming_catalog"),
             RemaMealPlanSensor(data.shopping_list, entry),
             RemaDinnerTodaySensor(entry),
+            RemaSuggestionsSensor(entry),
         ]
     )
 
@@ -231,3 +233,50 @@ class RemaCatalogSensor(RemaEntity[RemaOffersCoordinator], SensorEntity):
             "offer_count": catalog.offer_count,
             "first_seen": self.coordinator.data.first_seen.get(catalog.id),
         }
+
+
+class RemaSuggestionsSensor(SensorEntity):
+    """The week's daily suggestions: how many days still need a dinner picked."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "daily_suggestions"
+
+    def __init__(self, entry: RemaConfigEntry) -> None:
+        """Initialize the sensor."""
+        self._entry = entry
+        self._attr_unique_id = f"{entry.unique_id}_daily_suggestions"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def native_value(self) -> int | None:
+        """Days without a picked dinner (None before the first suggestions)."""
+        suggestions = self._entry.runtime_data.store.suggestions
+        if not suggestions:
+            return None
+        return sum(1 for day in suggestions["days"] if not day.get("chosen"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Each day's three dinners: name, kcal, shop, price and whether it is fish."""
+        suggestions = self._entry.runtime_data.store.suggestions
+        if not suggestions:
+            return None
+        return {
+            "start_date": suggestions["start_date"],
+            "end_date": suggestions["end_date"],
+            "plan_id": suggestions.get("plan_id"),
+            "days": summary(suggestions),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Update when the suggestions or plans change."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, signal_plans_updated(self._entry.entry_id), self._refresh
+            )
+        )
+
+    @callback
+    def _refresh(self, *_: Any) -> None:
+        self.async_write_ha_state()

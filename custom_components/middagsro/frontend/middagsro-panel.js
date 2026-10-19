@@ -535,6 +535,19 @@ class Rema1000Panel extends HTMLElement {
           }
         }, "Madplanen er slettet.");
       },
+      "sugg-generate": () =>
+        this._run(() => this._ws("middagsro/suggestions/generate", {}), "Dagsforslagene laves – det tager et par minutter."),
+      "sugg-choose": () => {
+        const [date, optionId] = String(arg).split("|");
+        this._run(
+          () => this._ws("middagsro/suggestions/choose", { date, option_id: optionId || null }),
+          optionId ? "Retten er valgt og lagt på madplanen." : "Retten er fravalgt."
+        );
+      },
+      "sugg-dislike": () => {
+        const [date, optionId] = String(arg).split("|");
+        this._run(() => this._ws("middagsro/suggestions/dislike", { date, option_id: optionId }), "Retten er fjernet og foreslås ikke igen.");
+      },
       "rate-day": () => {
         const [planId, date, rate] = String(arg).split("|");
         this._run(async () => {
@@ -1810,6 +1823,51 @@ class Rema1000Panel extends HTMLElement {
       </div>`;
   }
 
+  // The week's daily suggestions on the front page: three dinners a day to pick from.
+  _suggestionsCard() {
+    const sugg = this._state.suggestions;
+    const busy = this._state.status?.state === "generating" || this._busy;
+    if (!sugg) {
+      return `<div class="card sugg-card">
+        <h2 class="flush">Dagsforslag</h2>
+        <p class="muted">Hver søndag morgen laves tre aftensmadsforslag til hver dag i den kommende uge ud fra tilbuddene i jeres butikker. I vælger én ret pr. dag, og valgene bliver ugens madplan og indkøbsliste.</p>
+        <button class="btn" data-action="sugg-generate" ${busy ? "disabled" : ""}>Lav dagsforslag nu</button>
+      </div>`;
+    }
+    const fishDay = sugg.days.find((d) => d.options.some((o) => o.id === d.chosen && o.fish));
+    const picked = sugg.days.filter((d) => d.chosen).length;
+    const rows = sugg.days
+      .map((day) => {
+        const options = day.options
+          .map((o) => {
+            const on = o.id === day.chosen;
+            const blocked = o.fish && fishDay && fishDay.date !== day.date;
+            return `<div class="sugg-opt ${on ? "on" : ""}">
+              <button class="sugg-pick" data-action="sugg-choose" data-arg="${esc(day.date)}|${on ? "" : esc(o.id)}" ${blocked || busy ? "disabled" : ""}
+                title="${blocked ? "Ugen har allerede fisk" : on ? "Fravælg" : "Vælg denne ret"}" aria-pressed="${on}">
+                <b>${o.fish ? "🐟 " : ""}${esc(o.dish)}</b>
+                <span class="muted small">${o.kcal} kcal · ${esc(this._chainName(o.chain || REMA_ID))} · ${kr(o.cost || 0)}</span>
+              </button>
+              <button class="icon-btn" data-action="sugg-dislike" data-arg="${esc(day.date)}|${esc(o.id)}" ${busy ? "disabled" : ""} title="Fjern – kommer aldrig igen (👎)" aria-label="Fjern">👎</button>
+            </div>`;
+          })
+          .join("");
+        return `<div class="sugg-day"><h3>${esc(dateLabel(day.date))}</h3>${options || '<p class="muted small">Ingen forslag tilbage – lav dagsforslagene igen.</p>'}</div>`;
+      })
+      .join("");
+    return `<div class="card sugg-card">
+      <div class="row between wrap">
+        <div>
+          <h2 class="flush">Dagsforslag · ${esc(sugg.title || "")}</h2>
+          <p class="muted">${picked} af ${sugg.days.length} dage valgt · ca. ${sugg.kcal?.[0]}–${sugg.kcal?.[1]} kcal pr. portion · ${fishDay ? `fisk ${esc(dateLabel(fishDay.date))}` : sugg.fish_needed ? "ugens fisk mangler" : "ugen har fisk"}</p>
+        </div>
+        <button class="btn" data-action="sugg-generate" ${busy ? "disabled" : ""}>Lav nye forslag</button>
+      </div>
+      <div class="sugg-days">${rows}</div>
+      <p class="muted small">Valgene bliver ugens madplan; varerne kommer på listen til den butik, de købes i. 👎 fjerner en ret for altid.</p>
+    </div>`;
+  }
+
   // The chosen chains on the front page.
   _chainsCard() {
     const ids = [REMA_ID, ...(this._state.settings.chains || [])];
@@ -2562,7 +2620,7 @@ class Rema1000Panel extends HTMLElement {
         <p>Madplanen laves med AI ud fra ugens tilbud og jeres indstillinger. Tjek indstillingerne først, og tryk så på knappen.</p>
         ${this._generateControls("Lav madplan")}
         <p class="muted">${catLine}</p>
-      </div>${this._chainsCard()}`;
+      </div>${this._suggestionsCard()}${this._chainsCard()}`;
     }
     const over = plan.budget && plan.total > plan.budget;
     const today = localToday();
@@ -2608,6 +2666,7 @@ class Rema1000Panel extends HTMLElement {
       .join("");
     return `
       ${this._viewingLatest ? "" : `<div class="banner info">Du ser en ældre madplan. <button class="link" data-action="view-latest">Vis nyeste</button></div>`}
+      ${this._suggestionsCard()}
       ${this._chainsCard()}
       <div class="card">
         <div class="row between wrap">
@@ -3382,6 +3441,12 @@ const STYLE = `
   .cline.bought .box { background: var(--c, var(--rema-accent)); color: #fff; }
   .stepper { display: inline-flex; align-items: center; gap: 2px; }
   .stepper .icon-btn { font-size: 18px; }
+  .sugg-days { display: grid; gap: 12px; margin: 12px 0; }
+  .sugg-day h3 { margin: 0 0 6px; font-size: 1rem; }
+  .sugg-opt { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .sugg-pick { flex: 1; display: grid; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--divider-color, #ddd); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  .sugg-opt.on .sugg-pick { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 12%, transparent); }
+  .sugg-pick:disabled { opacity: .45; cursor: not-allowed; }
   .plan-chains { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
   .plan-chains li { display: flex; align-items: center; gap: 8px; }
   .chain-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }

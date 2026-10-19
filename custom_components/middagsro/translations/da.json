@@ -75,6 +75,9 @@
       },
       "dinner_today": {
         "name": "Dagens ret"
+      },
+      "daily_suggestions": {
+        "name": "Dagsforslag"
       }
     },
     "todo": {
@@ -88,6 +91,9 @@
       },
       "send_meal_plan": {
         "name": "Send madplan til indkøbsliste"
+      },
+      "generate_daily_suggestions": {
+        "name": "Lav dagsforslag"
       }
     },
     "calendar": {
@@ -98,6 +104,11 @@
     "text": {
       "quick_add": {
         "name": "Tilføj vare"
+      }
+    },
+    "select": {
+      "suggestion_day": {
+        "name": "Middag {weekday}"
       }
     }
   },
@@ -194,6 +205,12 @@
     },
     "avis_not_out": {
       "message": "Næste uges tilbudsavis er ikke udkommet endnu, så madplanen fra {date} kan ikke laves med de rigtige priser. Vælg en første dag til og med {last}, eller vent til den nye avis er ude."
+    },
+    "suggestion_not_found": {
+      "message": "Forslaget findes ikke (lav dagsforslagene igen)."
+    },
+    "one_fish_a_week": {
+      "message": "Ugen har allerede en fiskeret – der må kun være fisk én gang om ugen."
     }
   },
   "issues": {
@@ -297,6 +314,20 @@
         "part": {
           "name": "Hvilke varer",
           "description": "Indkøbsdag: det, der købes på indkøbsdagen. Sidst på ugen: varerne til tilbud, der starter senere (fx torsdag), når 'Vi handler også sidst på ugen' er slået til. Alle: det hele."
+        }
+      }
+    },
+    "generate_daily_suggestions": {
+      "name": "Lav dagsforslag",
+      "description": "Laver med AI tre aftensmadsforslag til hver dag i ugen fra mandag ud fra tilbuddene i jeres butikker. I vælger én ret pr. dag, og valgene bliver ugens madplan.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Konto",
+          "description": "Kun nødvendig, hvis der er sat mere end én REMA 1000-konto op."
+        },
+        "start_date": {
+          "name": "Første dag",
+          "description": "Mandagen forslagene starter. Standard er næste mandag."
         }
       }
     }
