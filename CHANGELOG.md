@@ -2,6 +2,12 @@
 
 All notable changes to REMA 1000 for Home Assistant. The version is the one in `custom_components/rema1000/manifest.json`; a new version on `main` is released by itself with its section below as notes.
 
+## [1.4.0] - 2026-10-19
+
+### Added
+- The meal plan is made with the offers of REMA 1000, Netto and Lidl (Indstillinger › Andre butikker › Madplanen, in your order of shops). Items on another chain's offer go on that shop's list; items not on offer go to the first shop, priced with REMA 1000's price as an estimate. The budget counts every shop.
+- Dagsforslag: every sunday morning three dinners for each day of the coming week (about 500 kcal, fish exactly once a week, none of the dishes with 👎, your favourites in rotation). Pick one a day on the front page or with the select *Middag <ugedag>*; the picks become the week's meal plan. New sensor *Dagsforslag*, button *Lav dagsforslag* and action `middagsro.generate_daily_suggestions`.
+
 ## [1.3.0] - 2026-10-19
 
 ### Changed
